@@ -13,7 +13,7 @@
     "type": "git",
     "url": "git+https://github.com/luongnv89/codex-of-duty.git"
   },
-  "license": "MIT",
+  "license": "ISC",
   "type": "commonjs",
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
