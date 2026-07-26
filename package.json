@@ -8,8 +8,12 @@
     "preview": "vite preview"
   },
   "keywords": ["three.js", "rapier", "fps", "game"],
-  "author": "Luong NGUYEN",
-  "license": "ISC",
+  "author": "Luong NGUYEN <luongnv89@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luongnv89/codex-of-duty.git"
+  },
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

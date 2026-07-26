@@ -5,3 +5,22 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Vite
+.env.local
+.env.*.local
+
+# IDE
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+
+# Build artifacts
+*.map
+
