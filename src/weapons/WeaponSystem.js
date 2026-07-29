@@ -666,7 +666,11 @@ export class WeaponSystem {
     this.container.rotation.z += (reloadRoll - this.container.rotation.z) * 10 * dt;
 
     const adsFov = this.getCurrentWeapon()?.adsFov || 60;
-    const movementFov = this.game.player?.isSprinting ? 96 : this.game.player?.isCrouching ? 87 : this.defaultFov;
+    // Sprint widens and crouch narrows relative to the player's chosen FOV, so the
+    // setting still means something once it moves off the default 90.
+    const movementFov = this.game.player?.isSprinting ? this.defaultFov + 6
+      : this.game.player?.isCrouching ? this.defaultFov - 3
+      : this.defaultFov;
     const targetFov = movementFov - (movementFov - adsFov) * this.adsProgress;
     this.currentFov += (targetFov - this.currentFov) * 0.15;
     this.game.camera.fov = this.currentFov;

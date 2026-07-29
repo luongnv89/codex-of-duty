@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { TextureLoader, AudioLoader } from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
 
@@ -14,9 +12,10 @@ export class ResourceLoader {
       const percent = Math.round((loaded / total) * 100);
     };
 
+    // No Draco or KTX2 loader is wired up: nothing in this project ships compressed
+    // geometry or textures, and importing them pulled ~1.8 MB of decoder blobs into
+    // the build. Re-add them here (and call gltfLoader.setDRACOLoader) if that changes.
     this.gltfLoader = new GLTFLoader(this.loadingManager);
-    this.dracoLoader = new DRACOLoader(this.loadingManager);
-    this.dracoLoader.setDecoderPath('/node_modules/three/examples/jsm/libs/draco/gltf/');
     this.rgbeLoader = new RGBELoader(this.loadingManager);
     this.textureLoader = new TextureLoader(this.loadingManager);
     this.audioLoader = new AudioLoader(this.loadingManager);

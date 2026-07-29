@@ -480,7 +480,7 @@ export default class UIManager {
       musicVolume: 0.5,
       sensitivity: 5,
       graphicsQuality: 'high',
-      fov: 75,
+      fov: 90, // Matches FOV in PlayerController — the panel used to claim 75.
     };
 
     this._onKeyDown = this._onKeyDown.bind(this);
@@ -716,8 +716,8 @@ export default class UIManager {
           </select>
         </div>
         <div class="setting-group">
-          <span class="setting-label">FOV <span class="setting-value">75</span></span>
-          <input type="range" class="setting-slider" data-setting="fov" min="60" max="120" value="75">
+          <span class="setting-label">FOV <span class="setting-value">90</span></span>
+          <input type="range" class="setting-slider" data-setting="fov" min="60" max="120" value="90">
         </div>
         <button class="menu-btn" data-action="back">Back</button>
       </div>
@@ -780,7 +780,6 @@ export default class UIManager {
           <div><span class="label">TIME: </span><span class="value" id="go-time">00:00</span></div>
         </div>
         <button class="menu-btn primary" data-action="restart">PLAY AGAIN</button>
-        <button class="menu-btn" data-action="quit">MAIN MENU</button>
       </div>
     `;
     this.overlay.appendChild(gameOverScreen);
@@ -885,6 +884,29 @@ export default class UIManager {
       ? (setting.includes('Volume') ? val / 100 : val)
       : val;
     this.eventBus.emit('settings:changed', { key: setting, value: this.settings[setting] });
+  }
+
+  // Drives the controls from stored settings without re-emitting settings:changed,
+  // so restoring a saved config cannot loop back through the handler.
+  syncSettings(settings) {
+    Object.assign(this.settings, settings);
+    this.elements.menuOverlay?.querySelectorAll('.setting-slider').forEach((control) => {
+      const key = control.dataset.setting;
+      if (!(key in this.settings)) return;
+      const value = this.settings[key];
+      control.value = control.type === 'range' && key.includes('Volume')
+        ? Math.round(value * 100)
+        : value;
+      const label = control.closest('.setting-group')?.querySelector('.setting-value');
+      if (!label) return;
+      if (key === 'graphicsQuality') {
+        label.textContent = String(value).charAt(0).toUpperCase() + String(value).slice(1);
+      } else if (key.includes('Volume')) {
+        label.textContent = Math.round(value * 100) + '%';
+      } else {
+        label.textContent = value;
+      }
+    });
   }
 
   _showPausePanel() {

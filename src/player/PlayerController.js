@@ -45,11 +45,16 @@ export default class PlayerController {
     this.state = 'idle';
     this.prevState = 'idle';
     this.stateTime = 0;
+    // stateTime restarts on every state change, so it cannot time anything that
+    // outlives one state. aliveTime only resets on respawn — regen delay uses it.
+    this.aliveTime = 0;
+    this.lookSensitivity = 1;
 
     this.keys = { forward: false, backward: false, left: false, right: false, sprint: false, crouch: false };
     this.wantsJump = false;
     this.moveInput = new THREE.Vector2();
     this.lookInput = new THREE.Vector2();
+    this._lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
     this.onGround = false;
     this.wasOnGround = false;
@@ -133,15 +138,15 @@ export default class PlayerController {
   }
 
   _onClick() {
-    if (this.state !== 'dead') this.controls.lock();
+    // Touch devices drive look through TouchControls; pointer lock is unsupported
+    // there and throws on some mobile browsers.
+    if (this.game.touch || this.state === 'dead') return;
+    this.controls.lock();
   }
 
   _onPointerLock() {
     const locked = document.pointerLockElement === this.game.renderer.domElement;
-    if (!locked) {
-      Object.keys(this.keys).forEach(key => { this.keys[key] = false; });
-      this.wantsJump = false;
-    }
+    if (!locked) this.releaseInput();
     this.game.eventBus.emit('player:pointerlock', { locked });
   }
 
@@ -169,11 +174,25 @@ export default class PlayerController {
     }
   }
 
-  look(dx, dy) { this.lookInput.set(dx, dy); }
-  move(f, r) { this.moveInput.set(r, -f); }
+  // Non-mouse look (touch, gamepad) accumulates here and is drained once per frame
+  // by _applyLook. The mouse goes through PointerLockControls instead, so both
+  // paths share one sensitivity setting via lookSensitivity / controls.pointerSpeed.
+  look(dx, dy) { this.lookInput.x += dx; this.lookInput.y += dy; }
+  // f is forward, r is right. _updateMovement adds moveInput.y straight onto mz,
+  // where positive mz is forward, so f must not be negated on the way in.
+  move(f, r) { this.moveInput.set(r, f); }
   sprint(s) { this.keys.sprint = s; }
   crouch(s) { this.keys.crouch = s; }
   jump() { this.wantsJump = true; }
+
+  // Drops every held input. Used when the player stops being simulated — on death,
+  // on losing pointer lock, and when a run ends — so nothing stays latched.
+  releaseInput() {
+    Object.keys(this.keys).forEach(key => { this.keys[key] = false; });
+    this.wantsJump = false;
+    this.moveInput.set(0, 0);
+    this.lookInput.set(0, 0);
+  }
 
   getPosition() {
     const p = this.body.translation();
@@ -206,7 +225,7 @@ export default class PlayerController {
     mitigatedDamage -= absorbed;
     if (absorbed > 0) this.game.eventBus.emit('player:armor', { armor: this.armor, max: this.maxArmor });
     this.hp = Math.max(0, this.hp - mitigatedDamage);
-    this.lastHit = this.stateTime;
+    this.lastHit = this.aliveTime;
     this.landShock = Math.min(this.landShock + mitigatedDamage / MAX_HP, 1);
     this.game.eventBus.emit('player:damage', { health: this.hp, amount: mitigatedDamage });
     this.game.eventBus.emit('player:health', { health: this.hp, max: MAX_HP });
@@ -222,18 +241,20 @@ export default class PlayerController {
     if (this.state === 'dead') return;
     this.state = 'dead';
     this.stateTime = 0;
-    Object.keys(this.keys).forEach(key => { this.keys[key] = false; });
+    this.releaseInput();
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.controls.unlock();
     this.game.eventBus.emit('player:death');
   }
 
   _onRespawn() {
+    this.releaseInput();
     this.hp = MAX_HP;
     this.armor = 0;
     this.state = 'idle';
     this.prevState = 'dead';
     this.stateTime = 0;
+    this.aliveTime = 0;
     this.lastHit = -REGEN_DELAY;
     this.landShock = 0;
     this.viewOffset.set(0, 0, 0);
@@ -269,6 +290,8 @@ export default class PlayerController {
     }
 
     this.stateTime += dt;
+    this.aliveTime += dt;
+    this._applyLook();
     this._checkGround(dt);
     this._updateCrouch(dt);
     this._updateMovement(dt);
@@ -427,6 +450,18 @@ export default class PlayerController {
     this.body.setLinvel({ x: newVel.x, y: newVel.y, z: newVel.z }, true);
   }
 
+  // Movement can arrive from the keys or from moveInput (touch stick, gamepad).
+  // State and head-bob both have to see either, or non-keyboard input walks the
+  // player around with no walk state, no bob and no footsteps.
+  _isMoving() {
+    return this.keys.forward || this.keys.backward || this.keys.left || this.keys.right
+      || Math.abs(this.moveInput.x) > 0.01 || Math.abs(this.moveInput.y) > 0.01;
+  }
+
+  _isMovingForward() {
+    return this.keys.forward || this.moveInput.y > 0.5;
+  }
+
   _updateState() {
     this.prevState = this.state;
     if (this.state === 'dead' || this.hp <= 0) {
@@ -434,18 +469,18 @@ export default class PlayerController {
       return;
     }
 
-    const moving = this.keys.forward || this.keys.backward || this.keys.left || this.keys.right;
+    const moving = this._isMoving();
 
     if (this.onGround) {
       if (this.prevState === 'jumping' || this.prevState === 'falling') {
         if (this.isCrouching) this._setState('crouching');
-        else if (this.isSprinting && this.keys.forward) this._setState('sprinting');
+        else if (this.isSprinting && this._isMovingForward()) this._setState('sprinting');
         else if (moving) this._setState('walking');
         else this._setState('idle');
       } else if (this.isCrouching) {
         this._setState('crouching');
       } else if (moving) {
-        this._setState(this.isSprinting && this.keys.forward ? 'sprinting' : 'walking');
+        this._setState(this.isSprinting && this._isMovingForward() ? 'sprinting' : 'walking');
       } else {
         this._setState('idle');
       }
@@ -468,6 +503,35 @@ export default class PlayerController {
     this.game.eventBus.emit('player:state', { from: this.prevState, to: s });
   }
 
+  // Applies any queued non-mouse look, matching PointerLockControls' YXZ order so
+  // touch and mouse cannot disagree about which way is up.
+  _applyLook() {
+    if (this.lookInput.x === 0 && this.lookInput.y === 0) return;
+    const euler = this._lookEuler;
+    euler.setFromQuaternion(this.game.camera.quaternion);
+    euler.y -= this.lookInput.x * MOUSE_SENS * this.lookSensitivity;
+    euler.x -= this.lookInput.y * MOUSE_SENS * this.lookSensitivity;
+    euler.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, euler.x));
+    this.game.camera.quaternion.setFromEuler(euler);
+  }
+
+  // 1-10 from the settings slider, where the 5 default means "unchanged".
+  setSensitivity(value) {
+    this.lookSensitivity = Math.max(0.1, value / 5);
+    if (this.controls) this.controls.pointerSpeed = this.lookSensitivity;
+  }
+
+  // WeaponSystem rewrites camera.fov every frame for ADS and sprint, so the chosen
+  // FOV has to become its baseline rather than a one-off write to the camera.
+  setFov(value) {
+    if (this.game.weapons) {
+      this.game.weapons.defaultFov = value;
+      this.game.weapons.currentFov = value;
+    }
+    this.game.camera.fov = value;
+    this.game.camera.updateProjectionMatrix();
+  }
+
   _updateCamera(dt) {
     const pos = this.body.translation();
 
@@ -487,7 +551,7 @@ export default class PlayerController {
   }
 
   _updateBob(dt) {
-    const moving = this.keys.forward || this.keys.backward || this.keys.left || this.keys.right;
+    const moving = this._isMoving();
 
     let freq;
     let amp;
@@ -517,7 +581,7 @@ export default class PlayerController {
 
   _regenHealth(dt) {
     if (this.hp <= 0 || this.hp >= MAX_HP) return;
-    if (this.stateTime - this.lastHit > REGEN_DELAY) {
+    if (this.aliveTime - this.lastHit > REGEN_DELAY) {
       const prev = this.hp;
       this.hp = Math.min(MAX_HP, this.hp + REGEN_RATE * dt);
       if (Math.floor(this.hp) !== Math.floor(prev)) {

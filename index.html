@@ -2,11 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- user-scalable=no stops a two-thumb aim gesture from pinch-zooming the page. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Codex of Duty — Three.js FPS Game</title>
   <style>
     * { margin: 0; padding: 0; overflow: hidden; }
-    #game { width: 100vw; height: 100vh; }
+    html, body { overscroll-behavior: none; background: #000; }
+    #game { width: 100vw; height: 100dvh; }
     #loading {
       position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
       font-family: 'Courier New', monospace; font-size: 24px; color: #fff;

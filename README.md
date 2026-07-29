@@ -88,13 +88,42 @@ The project is configured for **GitHub Pages** deployment via GitHub Actions. Pu
 
 ## Controls
 
+### Keyboard and mouse
+
 | Action | Key |
 |---|---|
 | Move | W, A, S, D |
-| Look / Mouse | Mouse movement |
-| Jump | Space |
+| Look | Mouse movement |
 | Shoot | Left mouse button |
+| Aim down sights | Right mouse button |
 | Sprint | Left Shift |
+| Crouch | Left Ctrl or C |
+| Jump | Space |
+| Reload | R |
+| Switch weapon | 1 – 5 |
+| Pause / settings | Esc |
+
+### Touch
+
+On a phone or tablet the on-screen controls appear automatically — nothing to
+turn on.
+
+| Action | Gesture |
+|---|---|
+| Move | Left half of the screen — a stick appears where your thumb lands |
+| Sprint | Push that stick to its edge |
+| Look | Drag anywhere on the right half |
+| Shoot | **FIRE** (hold it down for automatic weapons) |
+| Jump / Reload | **JUMP** / **RLD** |
+| Crouch | **CRCH** — tap to latch, tap again to stand |
+| Pause | **II**, top right |
+
+### Settings
+
+Esc, or the pause button, opens Settings. Volume, mouse sensitivity, FOV and a
+graphics quality tier all apply live and are saved to `localStorage`. Quality
+defaults to a tier picked from the device, so phones and low-core machines start
+lower rather than stuttering at High until you find the menu.
 
 ## Project Structure
 
