@@ -65,7 +65,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Recoil wrote `camera.rotation.x/y`, an XYZ euler decomposed from a YXZ orientation, so it
   recomposed in the wrong order: a 40-shot burst accumulated ~1.6 degrees of camera roll,
   drifted yaw about twice as fast as intended, and had no pitch clamp to stop sustained
-  fire flipping the view past vertical.
+  fire driving the view past the vertical and flipping the camera. Note the kick is
+  downward — `rotRecoil` is positive and is applied negated — so it walks the view toward
+  the floor, not the sky; that sign is carried over unchanged and is tracked separately.
 - Pointer lock refusals surfaced as unhandled rejections on every resume from pause.
   `PointerLockControls.lock()` calls `requestPointerLock()` without returning its promise,
   so the existing `.catch` had nothing to attach to.

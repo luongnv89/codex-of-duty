@@ -948,9 +948,16 @@ export class WeaponSystem {
 
     // Routed through the player so the kick composes as yaw + pitch. Writing
     // camera.rotation.x/y directly edited an XYZ euler decomposed from a YXZ
-    // orientation, which tilted the view and let sustained fire push the pitch
-    // past vertical and flip the camera — after which movement no longer lined up
-    // with the crosshair.
+    // orientation, which tilted the view and let sustained fire drive the pitch
+    // past the vertical and flip the camera — after which movement no longer lined
+    // up with the crosshair.
+    //
+    // The kick is DOWNWARD: rotRecoil is positive and passed negated, so euler.x
+    // decreases and the view walks toward the floor (-0.077 deg/shot for the rifle,
+    // -0.31 for the sniper), while the weapon model kicks up. Nothing recentres
+    // pitch, so it accumulates until the clamp pins it near -90. That sign is
+    // carried over unchanged from the code this replaced rather than fixed here,
+    // because reversing it changes how every weapon feels.
     const rotRecoil = recoilAmount * 3;
     this.game.player?.addLookRecoil(horizRecoil * 0.01, -rotRecoil * 0.015);
   }
