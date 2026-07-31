@@ -88,42 +88,42 @@ The project is configured for **GitHub Pages** deployment via GitHub Actions. Pu
 
 ## Controls
 
-### Keyboard and mouse
+The game is keyboard and mouse only. Click the canvas to capture the pointer.
 
-| Action | Key |
+| Action | Input |
 |---|---|
 | Move | W, A, S, D |
 | Look | Mouse movement |
-| Shoot | Left mouse button |
+| Shoot | Left mouse button, or F |
 | Aim down sights | Right mouse button |
-| Sprint | Left Shift |
-| Crouch | Left Ctrl or C |
+| Sprint | Shift |
+| Crouch | Ctrl or C |
 | Jump | Space |
 | Reload | R |
-| Switch weapon | 1 – 5 |
+| Switch weapon | 1 – 5 (top row or numpad) |
 | Pause / settings | Esc |
+| Input debug overlay | F3 |
 
-### Touch
+Keys are bound to physical positions rather than to the characters a layout
+produces, so the movement keys stay under the same four fingers on AZERTY (where
+they are labelled ZQSD) and on Dvorak. Every binding lives in
+[`src/core/keybindings.js`](src/core/keybindings.js).
 
-On a phone or tablet the on-screen controls appear automatically — nothing to
-turn on.
+Crouch is on `C` as well as `Ctrl` because crouch-walking is `Ctrl`+`W`, which
+browsers reserve to close the tab and no page can intercept. The game asks before
+unloading mid-run so a mistimed crouch does not end the game.
 
-| Action | Gesture |
-|---|---|
-| Move | Left half of the screen — a stick appears where your thumb lands |
-| Sprint | Push that stick to its edge |
-| Look | Drag anywhere on the right half |
-| Shoot | **FIRE** (hold it down for automatic weapons) |
-| Jump / Reload | **JUMP** / **RLD** |
-| Crouch | **CRCH** — tap to latch, tap again to stand |
-| Pause | **II**, top right |
+F3 opens an input debug overlay — held keys, heading, the direction the keys asked
+for, the direction the player actually took, and the angle between the last two.
+`?debug` on the URL starts it open. Use it to tell a stuck key apart from
+momentum when movement feels wrong.
 
 ### Settings
 
 Esc, or the pause button, opens Settings. Volume, mouse sensitivity, FOV and a
 graphics quality tier all apply live and are saved to `localStorage`. Quality
-defaults to a tier picked from the device, so phones and low-core machines start
-lower rather than stuttering at High until you find the menu.
+defaults to a tier picked from the machine, so low-core machines start lower
+rather than stuttering at High until you find the menu.
 
 ## Project Structure
 

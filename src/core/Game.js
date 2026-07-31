@@ -12,13 +12,14 @@ import { StateManager } from './StateManager.js';
 import { PhysicsWorld } from '../physics/PhysicsWorld.js';
 import { SceneManager } from './SceneManager.js';
 import PlayerController from '../player/PlayerController.js';
-import TouchControls from '../player/TouchControls.js';
 import { WeaponSystem } from '../weapons/WeaponSystem.js';
 import AISystem from '../ai/AISystem.js';
 import AudioManager from '../audio/AudioManager.js';
 import VFXSystem from '../fx/VFXSystem.js';
 import UIManager from '../ui/UIManager.js';
 import { WorldManager } from '../world/WorldManager.js';
+import { ACTION_KEYS, claimsKey, isInteractiveTarget } from './keybindings.js';
+import DebugOverlay from './DebugOverlay.js';
 
 // What each quality tier actually costs. SSAO is by far the most expensive pass,
 // so it is the first thing to go; pixel ratio is the second.
@@ -63,7 +64,7 @@ export class Game {
     this.audio = null;
     this.vfx = null;
     this.ui = null;
-    this.touch = null;
+    this.debug = null;
 
     this.isRunning = false;
     this.deltaTime = 0;
@@ -72,7 +73,12 @@ export class Game {
     this.quality = { tier: detectQualityTier(), ...QUALITY_TIERS[detectQualityTier()] };
     this.settings = this.loadSettings();
 
+    // Set just before the one navigation the game performs on purpose, so Play
+    // Again does not have to argue with the unload guard below.
+    this._unloadIsIntentional = false;
+
     this._onKeyDown = this._onKeyDown.bind(this);
+    this._onBeforeUnload = this._onBeforeUnload.bind(this);
     this._onResize = this._onResize.bind(this);
     this._animate = this._animate.bind(this);
   }
@@ -248,19 +254,21 @@ export class Game {
 
   initInput() {
     document.addEventListener('keydown', this._onKeyDown);
-    if (TouchControls.isTouchDevice()) {
-      this.touch = new TouchControls(this);
-      this.touch.init();
-    }
+    this.debug = new DebugOverlay(this);
+    this.debug.init();
   }
 
   initEventListeners() {
     window.addEventListener('resize', this._onResize);
+    window.addEventListener('beforeunload', this._onBeforeUnload);
     // Quit used to call stop(), which killed the render loop and left a frozen
     // frame with no way back. It now ends the run and shows the summary, which
     // still offers Play Again.
     this.eventBus.on('game:quit', () => this.endRun());
-    this.eventBus.on('game:restart', () => window.location.reload());
+    this.eventBus.on('game:restart', () => {
+      this._unloadIsIntentional = true;
+      window.location.reload();
+    });
     this.eventBus.on('game:toggle-pause', () => this.togglePause());
     this.eventBus.on('game:resumed', () => this.relockPointer());
     this.eventBus.on('settings:changed', (data) => this.applySetting(data.key, data.value));
@@ -290,13 +298,8 @@ export class Game {
   // Chrome refuses requestPointerLock for a beat after Escape released it, so a
   // rejection here is expected — clicking the canvas still re-locks.
   relockPointer() {
-    if (!this.player?.controls || this.player.state === 'dead') return;
-    try {
-      const result = this.player.controls.lock();
-      if (result?.catch) result.catch(() => {});
-    } catch {
-      // Ignored for the same reason.
-    }
+    if (!this.player || this.player.state === 'dead') return;
+    this.player.requestPointerLock();
   }
 
   endRun() {
@@ -312,20 +315,41 @@ export class Game {
     });
   }
 
+  // The one dispatcher for every press-once key. Held keys are PlayerController's,
+  // read as state rather than dispatched; see src/core/keybindings.js.
   _onKeyDown(e) {
-    if (!this.stateManager.isPlaying() && e.code !== 'Escape') return;
+    if (claimsKey(e) && !isInteractiveTarget(e.target)) e.preventDefault();
+    const action = ACTION_KEYS[e.code];
+    if (!action) return;
 
-    switch (e.code) {
-      case 'KeyR':
-        if (this.weapons) this.weapons.reload();
-        break;
-      case 'Digit1': case 'Digit2': case 'Digit3': case 'Digit4': case 'Digit5':
-        if (this.weapons) this.weapons.switchWeapon(parseInt(e.code.slice(-1)) - 1);
-        break;
-      case 'KeyF':
-        if (this.weapons) this.weapons.fire();
-        break;
+    // Pause is the only binding that has to work while the game is not running.
+    if (action === 'pause') {
+      this.ui?.handleEscape();
+      return;
     }
+    if (!this.stateManager.isPlaying()) return;
+
+    if (action.startsWith('weapon')) {
+      this.weapons?.switchWeapon(Number(action.slice(6)) - 1);
+      return;
+    }
+    switch (action) {
+      case 'jump': this.player?.jump(); break;
+      case 'fire': this.weapons?.fire(); break;
+      case 'reload': this.weapons?.reload(); break;
+    }
+  }
+
+  // Crouch is Ctrl and forward is W, so crouch-walking is Ctrl+W — the one bound
+  // combination the browser reserves and preventDefault cannot stop. Without this
+  // the game closes its own tab, mid-run, as a direct result of holding two
+  // movement keys. Only armed while there is a run to lose.
+  _onBeforeUnload(e) {
+    if (this._unloadIsIntentional) return;
+    if (!this.stateManager.isPlaying() && !this.stateManager.isPaused()) return;
+    e.preventDefault();
+    // Older browsers need the assignment; the string itself is never shown.
+    e.returnValue = '';
   }
 
   _onResize() {
@@ -370,7 +394,6 @@ export class Game {
 
   update(dt) {
     // Runs ahead of the player so this frame's stick position is the one used.
-    if (this.touch) this.touch.update(dt);
     if (this.stateManager.isPlaying()) {
       this.physics.update(dt);
       if (this.world) this.world.update(dt);
@@ -393,13 +416,15 @@ export class Game {
       this.ui.setMinimapData({
         playerX: playerPosition.x,
         playerZ: playerPosition.z,
-        playerRot: this.camera.rotation.y,
+        playerRot: this.player.getYaw(),
         entities: enemies,
       });
       this.ui.setScore(this.ui.score, this.elapsedTime);
       this.ui.update(dt);
     }
     if (this.audio) this.audio.update(dt);
+    // Last, so it reports the state the frame actually ended on.
+    this.debug?.update();
   }
 
   render() {
@@ -421,11 +446,14 @@ export class Game {
   destroy() {
     this.stop();
     if (this.physics) this.physics.destroy();
-    if (this.touch) this.touch.destroy();
     if (this.player) this.player.destroy();
     if (this.audio) this.audio.destroy();
     if (this.ui) this.ui.destroy();
     if (this.weapons) this.weapons.destroy();
+    if (this.debug) this.debug.destroy();
+    document.removeEventListener('keydown', this._onKeyDown);
+    window.removeEventListener('resize', this._onResize);
+    window.removeEventListener('beforeunload', this._onBeforeUnload);
     if (this.renderer) this.renderer.dispose();
   }
 }

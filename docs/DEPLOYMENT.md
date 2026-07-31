@@ -75,7 +75,6 @@ To use a custom domain with GitHub Pages:
 - [ ] No console errors in production build
 - [ ] Assets load correctly (check Network tab)
 - [ ] Audio works (user interaction required)
-- [ ] Mobile browsers tested (if applicable)
 - [ ] Performance is acceptable (60 FPS target)
 
 ## Troubleshooting

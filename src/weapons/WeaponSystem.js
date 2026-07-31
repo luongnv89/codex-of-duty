@@ -90,12 +90,9 @@ export class WeaponSystem {
     this.currentFov = 90;
     this.cameraShake = new THREE.Vector3();
 
-    this.keys = { w: false, a: false, s: false, d: false };
     this.prevMouse = new THREE.Vector2();
     this.isPointerLocked = false;
     this._bound = {
-      keydown: this._onKeyDown.bind(this),
-      keyup: this._onKeyUp.bind(this),
       mousedown: this._onMouseDown.bind(this),
       mouseup: this._onMouseUp.bind(this),
       contextmenu: this._onContextMenu.bind(this),
@@ -415,8 +412,6 @@ export class WeaponSystem {
 
   setupInputListeners() {
     const b = this._bound;
-    document.addEventListener('keydown', b.keydown);
-    document.addEventListener('keyup', b.keyup);
     document.addEventListener('mousedown', b.mousedown);
     document.addEventListener('mouseup', b.mouseup);
     document.addEventListener('contextmenu', b.contextmenu);
@@ -465,27 +460,6 @@ export class WeaponSystem {
 
   _onContextMenu(e) {
     e.preventDefault();
-  }
-
-  _onKeyDown(e) {
-    if (this.game.stateManager && !this.game.stateManager.isPlaying()) return;
-    const key = e.key.toLowerCase();
-    if (key === 'r') this.reload();
-    if (key === 'w') { this.keys.w = true; this.game.eventBus.emit('weapon:move-start', { direction: 'forward' }); }
-    if (key === 's') { this.keys.s = true; this.game.eventBus.emit('weapon:move-start', { direction: 'backward' }); }
-    if (key === 'a') { this.keys.a = true; this.game.eventBus.emit('weapon:move-start', { direction: 'left' }); }
-    if (key === 'd') { this.keys.d = true; this.game.eventBus.emit('weapon:move-start', { direction: 'right' }); }
-    if (key >= '1' && key <= '5') {
-      this.switchWeapon(parseInt(key) - 1);
-    }
-  }
-
-  _onKeyUp(e) {
-    const key = e.key.toLowerCase();
-    if (key === 'w') { this.keys.w = false; this.game.eventBus.emit('weapon:move-stop', { direction: 'forward' }); }
-    if (key === 's') { this.keys.s = false; this.game.eventBus.emit('weapon:move-stop', { direction: 'backward' }); }
-    if (key === 'a') { this.keys.a = false; this.game.eventBus.emit('weapon:move-stop', { direction: 'left' }); }
-    if (key === 'd') { this.keys.d = false; this.game.eventBus.emit('weapon:move-stop', { direction: 'right' }); }
   }
 
   update(deltaTime) {
@@ -619,8 +593,12 @@ export class WeaponSystem {
     this.swayOffset.y += (targetY - this.swayOffset.y) * 10 * dt;
   }
 
+  // Sway reads the player's own movement state instead of tracking WASD a second
+  // time. The duplicate listener could disagree with it — different key source,
+  // separate release path — and its weapon:move-* events had no listeners.
   updateBob(dt) {
-    const isMoving = this.keys.w || this.keys.s || this.keys.a || this.keys.d;
+    const keys = this.game.player?.keys;
+    const isMoving = !!keys && (keys.forward || keys.backward || keys.left || keys.right);
     if (isMoving) {
       const sprinting = this.game.player?.isSprinting;
       const crouching = this.game.player?.isCrouching;
@@ -968,9 +946,20 @@ export class WeaponSystem {
     this.recoilTarget.y += vertRecoil;
     this.recoilTarget.x += horizRecoil;
 
+    // Routed through the player so the kick composes as yaw + pitch. Writing
+    // camera.rotation.x/y directly edited an XYZ euler decomposed from a YXZ
+    // orientation, which tilted the view and let sustained fire drive the pitch
+    // past the vertical and flip the camera — after which movement no longer lined
+    // up with the crosshair.
+    //
+    // The kick is DOWNWARD: rotRecoil is positive and passed negated, so euler.x
+    // decreases and the view walks toward the floor (-0.077 deg/shot for the rifle,
+    // -0.31 for the sniper), while the weapon model kicks up. Nothing recentres
+    // pitch, so it accumulates until the clamp pins it near -90. That sign is
+    // carried over unchanged from the code this replaced rather than fixed here,
+    // because reversing it changes how every weapon feels.
     const rotRecoil = recoilAmount * 3;
-    this.game.camera.rotation.x -= rotRecoil * 0.015;
-    this.game.camera.rotation.y += horizRecoil * 0.01;
+    this.game.player?.addLookRecoil(horizRecoil * 0.01, -rotRecoil * 0.015);
   }
 
   ejectShell(config) {
@@ -1171,8 +1160,6 @@ export class WeaponSystem {
 
   destroy() {
     const b = this._bound;
-    document.removeEventListener('keydown', b.keydown);
-    document.removeEventListener('keyup', b.keyup);
     document.removeEventListener('mousedown', b.mousedown);
     document.removeEventListener('mouseup', b.mouseup);
     document.removeEventListener('contextmenu', b.contextmenu);
