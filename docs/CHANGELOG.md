@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Touch controls: on-screen movement stick, drag-to-look, and fire/jump/crouch/reload/pause
-  buttons, enabled automatically on touch devices
+- Every key binding now lives in one table, `src/core/keybindings.js`, split into held
+  movement keys and press-once action keys
+- An input debug overlay, toggled with `F3` or started open with `?debug`. It shows the
+  keys actually held, the heading, the direction those keys asked for, the direction the
+  body took, and the angle between the last two — the readout needed to tell an input bug
+  apart from momentum.
+- The page now asks before unloading mid-run, because crouch-walking is `Ctrl`+`W`, the one
+  bound combination browsers reserve and `preventDefault` cannot stop.
 - Graphics quality tiers (Low/Medium/High/Ultra) toggling SSAO, bloom, FXAA, shadows and
   pixel ratio, with the starting tier detected from the device
 - Settings apply live and persist to `localStorage`
@@ -26,10 +32,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ends the run and shows the summary screen, which still offers Play Again.
 - Resuming from pause left the pointer unlocked, so mouse look stayed dead until the canvas
   was clicked again.
-- `player.move()` negated its forward argument, which would drive any non-keyboard input
-  backwards.
-- Movement state and head-bob only checked `keys`, ignoring `moveInput`, so non-keyboard
-  movement produced no walk state, no bob and no footsteps.
+- Looking straight up or down froze all movement. The movement basis came from the
+  camera's world direction with `y` zeroed, and at the pitch limit its horizontal part is
+  zero, so forward and right both collapsed to nothing. It is now built from yaw alone.
+- Keys held while the window lost focus stayed latched, because the keyup is never
+  delivered — walking on after a tab switch, or cancelling out the opposite key. Focus loss
+  and tab hide now release all input.
+- Bound keys did not call `preventDefault`, so ordinary play typed browser shortcuts:
+  crouch is `Ctrl`, making crouch-and-fire `Ctrl`+`F` (find bar), crouch-and-reload
+  `Ctrl`+`R` (page reload) and crouch-and-strafe-left `Ctrl`+`A` (select all). Each takes
+  keyboard focus off the page, so the keyup for the key still physically held never
+  arrived and that action stayed latched — which is felt in-game as `W` walking you
+  sideways, `S` doing nothing until released, and positions that cannot be reached because
+  a phantom strafe cancels the real one. `Escape` is deliberately left alone so it can
+  still release pointer lock.
+- Several codes share one action — `Ctrl` and `C` are both crouch, either `Shift` is
+  sprint — and each wrote the action flag directly, so releasing one cleared an action the
+  other was still holding. Held codes are now tracked individually and the flags derived
+  from them.
+- The minimap plotted blips at `(x, -z)`, mirroring the map against its own rotation: a
+  target on the player's right drew on their left, and the two errors compounded so the
+  whole map swung at twice the rate the player turned. Chasing a blip meant walking away
+  from it. Blips now plot at `(x, z)`, which is the handedness the heading-up rotation
+  assumes.
+- The minimap and compass took the player's heading from `camera.rotation.y`. That is the
+  XYZ decomposition three.js keeps in sync with the quaternion, and for a yaw-then-pitch
+  orientation its `y` component is `asin(sin(yaw) · cos(pitch))` — folded at ±90° and
+  flattened by pitch, so yaw 135° read as 45° and yaw 180° read as 0. Both now read a true
+  yaw from `PlayerController.getYaw()`.
+- The compass ran mirrored: bearings increase clockwise from north while yaw increases the
+  other way, so turning right scrolled the labels as though turning left.
+- Recoil wrote `camera.rotation.x/y`, an XYZ euler decomposed from a YXZ orientation, so it
+  recomposed in the wrong order: a 40-shot burst accumulated ~1.6 degrees of camera roll,
+  drifted yaw about twice as fast as intended, and had no pitch clamp to stop sustained
+  fire flipping the view past vertical.
+- Pointer lock refusals surfaced as unhandled rejections on every resume from pause.
+  `PointerLockControls.lock()` calls `requestPointerLock()` without returning its promise,
+  so the existing `.catch` had nothing to attach to.
+- `R` and `1`-`5` were bound in two places and fired twice per press.
 - Sprint and crouch FOV were hardcoded to 96/87 against a default of 90, ignoring the FOV
   setting; they are now offsets from it.
 - Removed the dead `MAIN MENU` button from the game-over screen — it emitted `game:quit`,
@@ -38,6 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   loader and the project ships no compressed assets, but they emitted ~1.84 MB of decoder
   files that were never fetched at runtime.
 - Removed `renderer.physicallyCorrectLights`, a no-op since three.js r165.
+
+### Removed
+
+- Touch and mobile support, along with the on-screen controls. The game is keyboard and
+  mouse only; `WeaponSystem`'s duplicate WASD listener and `UIManager`'s separate Escape
+  listener went with it, leaving one handler for held keys and one for action keys.
 
 ## [1.0.0] - 2025-07-27
 

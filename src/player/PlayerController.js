@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import RAPIER from '@dimforge/rapier3d-compat';
+import { MOVEMENT_KEYS, claimsKey, isInteractiveTarget } from '../core/keybindings.js';
 
 const STANDING_HEIGHT = 1.8;
 const CROUCH_HEIGHT = 1.0;
@@ -13,7 +14,6 @@ const WALK_SPEED = 6;
 const SPRINT_SPEED = 10;
 const CROUCH_SPEED_VAL = 3;
 const JUMP_VEL = 8;
-const MOUSE_SENS = 0.002;
 const FOV = 90;
 const MAX_HP = 200;
 const REGEN_RATE = 10;
@@ -48,12 +48,19 @@ export default class PlayerController {
     // stateTime restarts on every state change, so it cannot time anything that
     // outlives one state. aliveTime only resets on respawn — regen delay uses it.
     this.aliveTime = 0;
-    this.lookSensitivity = 1;
 
+    // One flag per held movement action, filled from MOVEMENT_KEYS. Mouse look is
+    // PointerLockControls' job, so this is the whole of the player's input state.
     this.keys = { forward: false, backward: false, left: false, right: false, sprint: false, crouch: false };
+    // The flags are derived from the codes actually down rather than written
+    // directly, because several codes share one action: Ctrl and C are both crouch,
+    // and either Shift is sprint. Writing the flag on keyup let the release of one
+    // clear an action the other was still holding — hold C, tap Ctrl, and you stand
+    // up mid-crouch with the key still down.
+    this.heldCodes = new Set();
     this.wantsJump = false;
-    this.moveInput = new THREE.Vector2();
-    this.lookInput = new THREE.Vector2();
+    // Reused for reading yaw off the camera and for composing recoil, both of
+    // which must match the YXZ order PointerLockControls writes.
     this._lookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
 
     this.onGround = false;
@@ -87,6 +94,8 @@ export default class PlayerController {
 
     this._onKeyDown = this._onKeyDown.bind(this);
     this._onKeyUp = this._onKeyUp.bind(this);
+    this._onBlur = this._onBlur.bind(this);
+    this._onVisibility = this._onVisibility.bind(this);
     this._onClick = this._onClick.bind(this);
     this._onPointerLock = this._onPointerLock.bind(this);
     this._onRespawn = this._onRespawn.bind(this);
@@ -135,13 +144,39 @@ export default class PlayerController {
     this.game.renderer.domElement.addEventListener('click', this._onClick);
     document.addEventListener('keydown', this._onKeyDown);
     document.addEventListener('keyup', this._onKeyUp);
+    // A key held while the window loses focus never delivers its keyup, so it stays
+    // latched: come back from a tab switch and the player keeps walking, or a held
+    // A cancels out the D you are now pressing. macOS makes this routine — holding
+    // Cmd suppresses keyup for other keys, and Cmd-Tab is how you leave the window.
+    window.addEventListener('blur', this._onBlur);
+    document.addEventListener('visibilitychange', this._onVisibility);
+  }
+
+  _onBlur() {
+    this.releaseInput();
+  }
+
+  _onVisibility() {
+    if (document.hidden) this.releaseInput();
   }
 
   _onClick() {
-    // Touch devices drive look through TouchControls; pointer lock is unsupported
-    // there and throws on some mobile browsers.
-    if (this.game.touch || this.state === 'dead') return;
-    this.controls.lock();
+    if (this.state === 'dead') return;
+    this.requestPointerLock();
+  }
+
+  // Not controls.lock(): PointerLockControls calls requestPointerLock() without
+  // returning its promise, so a refusal — which Chrome issues for a beat after
+  // Escape released the lock — lands as an unhandled rejection that no caller can
+  // catch. Requesting on the canvas directly keeps the promise where we can ignore
+  // it. PointerLockControls still tracks the result through pointerlockchange.
+  requestPointerLock() {
+    try {
+      const result = this.game.renderer.domElement.requestPointerLock();
+      if (result?.catch) result.catch(() => {});
+    } catch {
+      // Older browsers throw synchronously instead of rejecting.
+    }
   }
 
   _onPointerLock() {
@@ -151,47 +186,62 @@ export default class PlayerController {
   }
 
   _onKeyDown(e) {
+    if (claimsKey(e) && !isInteractiveTarget(e.target)) e.preventDefault();
     if (this.state === 'dead' || !this.game.stateManager.isPlaying()) return;
-    switch (e.code) {
-      case 'KeyW': this.keys.forward = true; break;
-      case 'KeyS': this.keys.backward = true; break;
-      case 'KeyA': this.keys.left = true; break;
-      case 'KeyD': this.keys.right = true; break;
-      case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = true; break;
-      case 'ControlLeft': case 'ControlRight': case 'KeyC': this.keys.crouch = true; break;
-      case 'Space': this.wantsJump = true; break;
-    }
+    if (!MOVEMENT_KEYS[e.code]) return;
+    this.heldCodes.add(e.code);
+    this._syncKeys();
   }
 
+  // Deliberately unguarded: a key released while paused, dead or between runs must
+  // still clear, or it stays latched for the next time the player is simulated.
   _onKeyUp(e) {
-    switch (e.code) {
-      case 'KeyW': this.keys.forward = false; break;
-      case 'KeyS': this.keys.backward = false; break;
-      case 'KeyA': this.keys.left = false; break;
-      case 'KeyD': this.keys.right = false; break;
-      case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = false; break;
-      case 'ControlLeft': case 'ControlRight': case 'KeyC': this.keys.crouch = false; break;
-    }
+    if (!MOVEMENT_KEYS[e.code]) return;
+    this.heldCodes.delete(e.code);
+    this._syncKeys();
   }
 
-  // Non-mouse look (touch, gamepad) accumulates here and is drained once per frame
-  // by _applyLook. The mouse goes through PointerLockControls instead, so both
-  // paths share one sensitivity setting via lookSensitivity / controls.pointerSpeed.
-  look(dx, dy) { this.lookInput.x += dx; this.lookInput.y += dy; }
-  // f is forward, r is right. _updateMovement adds moveInput.y straight onto mz,
-  // where positive mz is forward, so f must not be negated on the way in.
-  move(f, r) { this.moveInput.set(r, f); }
-  sprint(s) { this.keys.sprint = s; }
-  crouch(s) { this.keys.crouch = s; }
+  _syncKeys() {
+    Object.keys(this.keys).forEach(action => { this.keys[action] = false; });
+    this.heldCodes.forEach(code => { this.keys[MOVEMENT_KEYS[code]] = true; });
+  }
+
+  // Jump is edge-triggered rather than held, so Game dispatches it here from
+  // ACTION_KEYS and update() consumes it at the end of the frame.
   jump() { this.wantsJump = true; }
+
+  // Recoil and any other code that nudges the view goes through here rather than
+  // writing camera.rotation directly: camera.rotation is an XYZ euler, so editing
+  // its x/y re-composes the orientation in the wrong order and leaks roll into a
+  // camera the rest of the game treats as yaw + pitch only.
+  addLookRecoil(yawDelta, pitchDelta) {
+    const euler = this._lookEuler;
+    euler.setFromQuaternion(this.game.camera.quaternion);
+    euler.y += yawDelta;
+    euler.x += pitchDelta;
+    euler.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, euler.x));
+    euler.z = 0;
+    this.game.camera.quaternion.setFromEuler(euler);
+  }
 
   // Drops every held input. Used when the player stops being simulated — on death,
   // on losing pointer lock, and when a run ends — so nothing stays latched.
   releaseInput() {
+    this.heldCodes.clear();
     Object.keys(this.keys).forEach(key => { this.keys[key] = false; });
     this.wantsJump = false;
-    this.moveInput.set(0, 0);
-    this.lookInput.set(0, 0);
+  }
+
+  // The single source of truth for which way the player faces. Everything that
+  // needs a heading — the movement basis, the minimap, the compass — reads it from
+  // here rather than from camera.rotation.y: camera.rotation is the XYZ
+  // decomposition three.js keeps in sync with the quaternion, and for a yaw-then-
+  // pitch orientation its y component is asin(sin(yaw) * cos(pitch)), not the yaw.
+  // That folds at ±90° — yaw 135° reads as 45°, yaw 180° reads as 0 — so anything
+  // steering off it agrees with the view only while the player faces roughly -Z.
+  getYaw() {
+    this._lookEuler.setFromQuaternion(this.game.camera.quaternion);
+    return this._lookEuler.y;
   }
 
   getPosition() {
@@ -258,7 +308,12 @@ export default class PlayerController {
     this.lastHit = -REGEN_DELAY;
     this.landShock = 0;
     this.viewOffset.set(0, 0, 0);
-    this.game.camera.rotation.z = 0;
+    // Clearing the death tilt through the YXZ euler, not camera.rotation.z: that is
+    // an XYZ euler, and zeroing its z leaves a quaternion that still carries YXZ
+    // roll — which is what makes the yaw the movement basis reads ambiguous.
+    this._lookEuler.setFromQuaternion(this.game.camera.quaternion);
+    this._lookEuler.z = 0;
+    this.game.camera.quaternion.setFromEuler(this._lookEuler);
     this.body.setTranslation({ x: 0, y: STANDING_HEIGHT / 2, z: 0 }, true);
     this.body.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.game.eventBus.emit('player:health', { health: this.hp, max: MAX_HP });
@@ -270,6 +325,8 @@ export default class PlayerController {
     this.controls.disconnect();
     document.removeEventListener('keydown', this._onKeyDown);
     document.removeEventListener('keyup', this._onKeyUp);
+    window.removeEventListener('blur', this._onBlur);
+    document.removeEventListener('visibilitychange', this._onVisibility);
     document.removeEventListener('pointerlockchange', this._onPointerLock);
     this.game.eventBus.off('player:respawn', this._onRespawn);
     this.game.renderer.domElement.removeEventListener('click', this._onClick);
@@ -291,7 +348,6 @@ export default class PlayerController {
 
     this.stateTime += dt;
     this.aliveTime += dt;
-    this._applyLook();
     this._checkGround(dt);
     this._updateCrouch(dt);
     this._updateMovement(dt);
@@ -300,7 +356,6 @@ export default class PlayerController {
     this._regenHealth(dt);
 
     this.wasOnGround = this.onGround;
-    this.lookInput.set(0, 0);
     this.wantsJump = false;
   }
 
@@ -374,11 +429,15 @@ export default class PlayerController {
   _updateMovement(dt) {
     const vel = this.body.linvel();
 
-    this.forward.set(0, 0, 0);
-    this.game.camera.getWorldDirection(this.forward);
-    this.forward.y = 0;
-    if (this.forward.lengthSq() > 0.0001) this.forward.normalize();
-    this.right.crossVectors(this.forward, this.up).normalize();
+    // The movement basis comes from yaw alone. Taking it from the camera's world
+    // direction breaks near vertical: looking straight up or down flattens the
+    // horizontal component to zero, so forward and right normalize to nothing and
+    // every movement key stops working. Pitch has no business steering WASD, so
+    // read yaw off the quaternion instead. YXZ matches the order
+    // PointerLockControls writes, and the result is already unit length.
+    const yaw = this.getYaw();
+    this.forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+    this.right.crossVectors(this.forward, this.up);
 
     let mx = 0;
     let mz = 0;
@@ -386,8 +445,6 @@ export default class PlayerController {
     if (this.keys.backward) mz -= 1;
     if (this.keys.left) mx -= 1;
     if (this.keys.right) mx += 1;
-    mx += this.moveInput.x;
-    mz += this.moveInput.y;
     const len = Math.sqrt(mx * mx + mz * mz);
     if (len > 1) { mx /= len; mz /= len; }
 
@@ -450,16 +507,8 @@ export default class PlayerController {
     this.body.setLinvel({ x: newVel.x, y: newVel.y, z: newVel.z }, true);
   }
 
-  // Movement can arrive from the keys or from moveInput (touch stick, gamepad).
-  // State and head-bob both have to see either, or non-keyboard input walks the
-  // player around with no walk state, no bob and no footsteps.
   _isMoving() {
-    return this.keys.forward || this.keys.backward || this.keys.left || this.keys.right
-      || Math.abs(this.moveInput.x) > 0.01 || Math.abs(this.moveInput.y) > 0.01;
-  }
-
-  _isMovingForward() {
-    return this.keys.forward || this.moveInput.y > 0.5;
+    return this.keys.forward || this.keys.backward || this.keys.left || this.keys.right;
   }
 
   _updateState() {
@@ -474,13 +523,13 @@ export default class PlayerController {
     if (this.onGround) {
       if (this.prevState === 'jumping' || this.prevState === 'falling') {
         if (this.isCrouching) this._setState('crouching');
-        else if (this.isSprinting && this._isMovingForward()) this._setState('sprinting');
+        else if (this.isSprinting && this.keys.forward) this._setState('sprinting');
         else if (moving) this._setState('walking');
         else this._setState('idle');
       } else if (this.isCrouching) {
         this._setState('crouching');
       } else if (moving) {
-        this._setState(this.isSprinting && this._isMovingForward() ? 'sprinting' : 'walking');
+        this._setState(this.isSprinting && this.keys.forward ? 'sprinting' : 'walking');
       } else {
         this._setState('idle');
       }
@@ -503,22 +552,9 @@ export default class PlayerController {
     this.game.eventBus.emit('player:state', { from: this.prevState, to: s });
   }
 
-  // Applies any queued non-mouse look, matching PointerLockControls' YXZ order so
-  // touch and mouse cannot disagree about which way is up.
-  _applyLook() {
-    if (this.lookInput.x === 0 && this.lookInput.y === 0) return;
-    const euler = this._lookEuler;
-    euler.setFromQuaternion(this.game.camera.quaternion);
-    euler.y -= this.lookInput.x * MOUSE_SENS * this.lookSensitivity;
-    euler.x -= this.lookInput.y * MOUSE_SENS * this.lookSensitivity;
-    euler.x = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, euler.x));
-    this.game.camera.quaternion.setFromEuler(euler);
-  }
-
   // 1-10 from the settings slider, where the 5 default means "unchanged".
   setSensitivity(value) {
-    this.lookSensitivity = Math.max(0.1, value / 5);
-    if (this.controls) this.controls.pointerSpeed = this.lookSensitivity;
+    if (this.controls) this.controls.pointerSpeed = Math.max(0.1, value / 5);
   }
 
   // WeaponSystem rewrites camera.fov every frame for ADS and sprint, so the chosen

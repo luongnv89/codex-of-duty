@@ -597,7 +597,6 @@ export default class AudioManager {
 
     window.addEventListener('click', this._boundResume);
     window.addEventListener('keydown', this._boundResume);
-    window.addEventListener('touchstart', this._boundResume);
 
     this.game.eventBus.on('game:paused', () => this._onPause());
     this.game.eventBus.on('game:resumed', () => this._onResume());
@@ -945,7 +944,6 @@ export default class AudioManager {
 
     window.removeEventListener('click', this._boundResume);
     window.removeEventListener('keydown', this._boundResume);
-    window.removeEventListener('touchstart', this._boundResume);
 
     if (this.game.camera && this.listener) {
       this.game.camera.remove(this.listener);

@@ -483,7 +483,6 @@ export default class UIManager {
       fov: 90, // Matches FOV in PlayerController — the panel used to claim 75.
     };
 
-    this._onKeyDown = this._onKeyDown.bind(this);
   }
 
   async init() {
@@ -821,24 +820,19 @@ export default class UIManager {
       this.addKillFeedEntry(data);
       this.showHitMarker('kill');
     });
-
-    document.addEventListener('keydown', this._onKeyDown);
   }
 
-  _onKeyDown(e) {
-    if (e.key === 'Escape') {
-      if (this.elements.deathScreen?.classList.contains('visible')) return;
-      if (this.elements.gameOverScreen?.classList.contains('visible')) return;
-      if (this.elements.settingsPanel?.classList.contains('visible')) {
-        this._showPausePanel();
-        return;
-      }
-      if (this.elements.menuOverlay?.classList.contains('visible')) {
-        this.eventBus.emit('game:toggle-pause');
-      } else {
-        this.eventBus.emit('game:toggle-pause');
-      }
+  // Called by Game's action dispatcher for the Escape binding. What Escape means
+  // depends on which panel is up, and only the UI knows that.
+  handleEscape() {
+    if (this.elements.deathScreen?.classList.contains('visible')) return;
+    if (this.elements.gameOverScreen?.classList.contains('visible')) return;
+    // From Settings, Escape steps back to the pause menu rather than resuming.
+    if (this.elements.settingsPanel?.classList.contains('visible')) {
+      this._showPausePanel();
+      return;
     }
+    this.eventBus.emit('game:toggle-pause');
   }
 
   _handleMenuAction(action) {
@@ -1079,7 +1073,11 @@ export default class UIManager {
     const container = this.elements.compassContainer;
     const north = this.elements.compassNorth;
     const width = container.parentElement.offsetWidth || 300;
-    const heading = ((this.minimapData.playerRot || 0) * 180 / Math.PI + 360) % 360;
+    // Bearings run clockwise from north, and north is world -Z — the direction the
+    // camera faces at yaw 0. Yaw runs the other way (counter-clockwise about +Y),
+    // so the bearing is -yaw. Feeding yaw in directly mirrored the strip: turning
+    // right scrolled the labels the way turning left should.
+    const heading = ((-(this.minimapData.playerRot || 0) * 180 / Math.PI) % 360 + 360) % 360;
     const pixelsPerDegree = width / 180;
 
     container.innerHTML = '';
@@ -1126,6 +1124,10 @@ export default class UIManager {
 
     ctx.save();
     ctx.translate(cx, cy);
+    // Heading-up map: the arrow below is drawn outside this transform and always
+    // points up, so the world is turned by the player's yaw until whatever is in
+    // front of them is at the top. This only works with blips plotted at (x, z) —
+    // see the loop below.
     ctx.rotate(this.minimapData.playerRot);
 
     ctx.strokeStyle = 'rgba(255,255,255,0.15)';
@@ -1138,6 +1140,11 @@ export default class UIManager {
       ctx.beginPath(); ctx.moveTo(-w / 2, y); ctx.lineTo(w / 2, y); ctx.stroke();
     }
 
+    // Looking down on the map from above, world +X runs right across the canvas and
+    // world +Z runs down it, so a blip goes at (x, z). Drawing it at -z mirrored the
+    // map: a target on the player's right appeared on their left, and because the
+    // reflection ran against the rotation the whole map swung at twice the rate the
+    // player turned. Chasing a blip under that meant walking away from it.
     for (const entity of this.minimapData.entities) {
       const ex = (entity.x - this.minimapData.playerX) * scale;
       const ez = (entity.z - this.minimapData.playerZ) * scale;
@@ -1146,17 +1153,17 @@ export default class UIManager {
       if (entity.type === 'enemy') {
         ctx.fillStyle = '#ff0000';
         ctx.beginPath();
-        ctx.arc(ex, -ez, 3, 0, Math.PI * 2);
+        ctx.arc(ex, ez, 3, 0, Math.PI * 2);
         ctx.fill();
       } else if (entity.type === 'item') {
         ctx.fillStyle = '#ff8800';
-        ctx.fillRect(ex - 2, -ez - 2, 4, 4);
+        ctx.fillRect(ex - 2, ez - 2, 4, 4);
       } else if (entity.type === 'objective') {
         ctx.fillStyle = '#55ffff';
         ctx.shadowColor = '#55ffff';
         ctx.shadowBlur = 6;
         ctx.beginPath();
-        ctx.arc(ex, -ez, 5, 0, Math.PI * 2);
+        ctx.arc(ex, ez, 5, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
@@ -1443,7 +1450,6 @@ export default class UIManager {
   }
 
   destroy() {
-    document.removeEventListener('keydown', this._onKeyDown);
     this.eventBus.clear('player:health');
     this.eventBus.clear('player:ammo');
     this.eventBus.clear('player:weapon');
