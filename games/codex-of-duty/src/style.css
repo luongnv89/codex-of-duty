@@ -1,0 +1,1087 @@
+/*
+ * The overlay's whole look. One font stack, one type scale, panels that share a
+ * single style — three different panel styles in one game is the clearest tell
+ * that nobody designed it.
+ *
+ * Colours are the palette from config.js, restated here as custom properties
+ * because CSS cannot import the module. Keep the two in step.
+ *
+ * The palette is declared as channel triples so a translucent variant can be
+ * derived from the same source instead of being retyped. Hardcoding
+ * `rgba(47, 72, 88, 0.4)` next to a `--surface` that already means that colour
+ * is how half the overlay ends up stale after a palette change.
+ */
+
+:root {
+  --ink-rgb: 7 17 31;
+  --ground-rgb: 21 40 59;
+  --surface-rgb: 234 246 255;
+  --player-rgb: 255 181 71;
+  --threat-rgb: 255 64 93;
+  --accent-rgb: 57 230 208;
+
+  --ink: rgb(var(--ink-rgb));
+  /* Mirrors PALETTE.ground in config.js. The overlay does not paint with it —
+     the canvas does — but the two lists stay one-for-one on purpose. */
+  --ground: rgb(var(--ground-rgb));
+  --surface: rgb(var(--surface-rgb));
+  --player: rgb(var(--player-rgb));
+  --threat: rgb(var(--threat-rgb));
+  --accent: rgb(var(--accent-rgb));
+
+  --paper: rgb(var(--ink-rgb) / 0.88);
+  --scrim: rgb(var(--ink-rgb) / 0.55);
+  --line: rgb(var(--accent-rgb) / 0.28);
+  --line-faint: rgb(var(--accent-rgb) / 0.12);
+  --surface-soft: rgb(var(--surface-rgb) / 0.4);
+  --accent-soft: rgb(var(--accent-rgb) / 0.55);
+  --player-soft: rgb(var(--player-rgb) / 0.85);
+  --text: rgb(var(--surface-rgb));
+  --dim: rgb(var(--surface-rgb) / 0.62);
+
+  --ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: ui-monospace, Menlo, Consolas, monospace;
+
+  /* One scale, six steps. Every font-size in this file is one of these — a
+     0.86 next to a 0.88 next to a 0.9 is three sizes doing one job. */
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8rem;
+  --fs-base: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.15rem;
+  --fs-xl: 1.4rem;
+
+  --pad: 14px;
+  --radius: 12px;
+
+  /* The notch, the home indicator, and the rounded corners of a phone. */
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--ui);
+  /* Block double-tap zoom, but keep pan available so scrollable panels work.
+     Canvas and touch controls re-assert touch-action: none below. */
+  touch-action: manipulation;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#game {
+  position: fixed;
+  inset: 0;
+  /* Keep drags on the playfield from scrolling or zooming the page. */
+  touch-action: none;
+}
+
+#game canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+/* ------------------------------------------------------ Black Relay HUD -- */
+/* Transitions use the same ease curve throughout so the overlay feels like one
+   instrument panel instead of mixed stock fades. */
+
+#combat-ui {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  font-family: var(--mono);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Four-arm crosshair — arms ease in/out instead of resizing the whole box. */
+#crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 48px;
+  height: 48px;
+  transform: translate(-50%, -50%);
+  --arm-gap: 9px;
+  --arm-len: 10px;
+  --arm-thick: 2px;
+  --ch-color: var(--surface);
+  --ch-glow: rgb(var(--accent-rgb) / 0.65);
+  transition: transform 0.18s var(--ease-out);
+}
+
+#crosshair .ch-arm {
+  position: absolute;
+  background: var(--ch-color);
+  box-shadow: 0 0 6px var(--ch-glow);
+  transition:
+    top 0.16s var(--ease-soft),
+    bottom 0.16s var(--ease-soft),
+    left 0.16s var(--ease-soft),
+    right 0.16s var(--ease-soft),
+    width 0.16s var(--ease-soft),
+    height 0.16s var(--ease-soft),
+    background 0.1s,
+    box-shadow 0.1s;
+}
+
+#crosshair .ch-top,
+#crosshair .ch-bottom {
+  left: 50%;
+  width: var(--arm-thick);
+  height: var(--arm-len);
+  margin-left: calc(var(--arm-thick) / -2);
+}
+
+#crosshair .ch-left,
+#crosshair .ch-right {
+  top: 50%;
+  height: var(--arm-thick);
+  width: var(--arm-len);
+  margin-top: calc(var(--arm-thick) / -2);
+}
+
+#crosshair .ch-top { top: calc(50% - var(--arm-gap) - var(--arm-len)); }
+#crosshair .ch-bottom { bottom: calc(50% - var(--arm-gap) - var(--arm-len)); top: auto; }
+#crosshair .ch-left { left: calc(50% - var(--arm-gap) - var(--arm-len)); }
+#crosshair .ch-right { right: calc(50% - var(--arm-gap) - var(--arm-len)); left: auto; }
+
+#crosshair .ch-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  transition: background 0.1s, box-shadow 0.1s, transform 0.16s var(--ease-out);
+}
+
+#crosshair.aiming {
+  --arm-gap: 4px;
+  --arm-len: 7px;
+  transform: translate(-50%, -50%) scale(0.92);
+}
+
+#crosshair.spread {
+  --arm-gap: 14px;
+  --arm-len: 9px;
+}
+
+#crosshair.hit {
+  --ch-color: var(--threat);
+  --ch-glow: rgb(var(--threat-rgb) / 0.9);
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+#crosshair.hit .ch-dot {
+  background: var(--threat);
+  box-shadow: 0 0 10px var(--threat);
+  transform: scale(1.4);
+}
+
+#crosshair.overdrive {
+  --ch-color: var(--player);
+  --ch-glow: rgb(var(--player-rgb) / 0.85);
+}
+
+#crosshair.overdrive .ch-dot {
+  background: var(--player);
+  box-shadow: 0 0 8px var(--player);
+}
+
+#weapon-readout {
+  position: absolute;
+  right: max(24px, calc(var(--safe-r) + 18px));
+  bottom: max(24px, calc(var(--safe-b) + 18px));
+  min-width: 180px;
+  padding: 10px 14px;
+  text-align: right;
+  background: linear-gradient(90deg, transparent, var(--paper));
+  border-right: 3px solid var(--player);
+  text-shadow: 0 2px 5px var(--ink);
+  transition: border-color 0.2s var(--ease-soft), opacity 0.2s;
+}
+
+#weapon-name {
+  color: var(--dim);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  transition: color 0.2s;
+}
+
+#weapon-name.reloading {
+  color: var(--player);
+}
+
+#ammo {
+  color: var(--surface);
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  transition: color 0.18s, text-shadow 0.18s;
+}
+
+#ammo.low {
+  color: var(--threat);
+  text-shadow: 0 0 12px rgb(var(--threat-rgb) / 0.55);
+  animation: ammoPulse 0.9s ease-in-out infinite;
+}
+
+#ammo small {
+  color: var(--dim);
+  font-size: var(--fs-base);
+}
+
+#reload-bar {
+  height: 3px;
+  margin-top: 6px;
+  background: rgb(var(--surface-rgb) / 0.12);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+#reload-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: var(--player);
+  box-shadow: 0 0 8px var(--player);
+  transition: transform 0.05s linear;
+}
+
+#vitals {
+  position: absolute;
+  left: max(20px, calc(var(--safe-l) + 14px));
+  bottom: max(24px, calc(var(--safe-b) + 18px));
+  width: min(210px, 42vw);
+  padding: 10px 12px;
+  background: linear-gradient(270deg, transparent, var(--paper));
+  border-left: 3px solid var(--accent);
+  text-shadow: 0 2px 5px var(--ink);
+}
+
+.vital-row {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr 2.2rem;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+}
+
+.vital-row:first-child {
+  margin-top: 0;
+}
+
+.vital-label {
+  color: var(--dim);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.08em;
+}
+
+.vital-track {
+  height: 6px;
+  background: rgb(var(--surface-rgb) / 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.vital-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(1);
+  transform-origin: left center;
+  border-radius: 3px;
+  will-change: transform;
+}
+
+.vital-fill.hp {
+  background: linear-gradient(90deg, #1faa8a, var(--accent));
+  box-shadow: 0 0 8px rgb(var(--accent-rgb) / 0.45);
+  transition: background 0.25s;
+}
+
+.vital-fill.hp.warn {
+  background: linear-gradient(90deg, #c47a18, var(--player));
+  box-shadow: 0 0 8px rgb(var(--player-rgb) / 0.45);
+}
+
+.vital-fill.hp.critical {
+  background: linear-gradient(90deg, #8a1028, var(--threat));
+  box-shadow: 0 0 10px rgb(var(--threat-rgb) / 0.55);
+}
+
+.vital-fill.ar {
+  background: linear-gradient(90deg, #2a5f9e, #6eb0ff);
+  box-shadow: 0 0 8px rgba(110, 176, 255, 0.4);
+}
+
+.vital-value {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-sm);
+  text-align: right;
+  color: var(--surface);
+}
+
+#mission-banner {
+  position: absolute;
+  top: 20%;
+  left: 50%;
+  width: min(520px, 76vw);
+  transform: translate(-50%, 12px) scale(0.96);
+  padding: 14px 22px;
+  text-align: center;
+  color: var(--surface);
+  background: linear-gradient(90deg, transparent, var(--paper), transparent);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  opacity: 0;
+  filter: blur(2px);
+  transition:
+    opacity 0.38s var(--ease-out),
+    transform 0.42s var(--ease-out),
+    filter 0.38s var(--ease-out);
+}
+
+#mission-banner.visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  filter: blur(0);
+}
+
+#mission-banner.leaving {
+  opacity: 0;
+  transform: translate(-50%, -10px) scale(0.98);
+  filter: blur(1px);
+  transition-duration: 0.28s;
+}
+
+#mission-banner strong {
+  display: block;
+  color: var(--accent);
+  font-family: var(--ui);
+  font-size: var(--fs-lg);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#mission-banner span {
+  color: var(--dim);
+  font-size: var(--fs-sm);
+}
+
+#interaction {
+  position: absolute;
+  left: 50%;
+  bottom: 24%;
+  width: min(360px, 72vw);
+  transform: translate(-50%, 8px) scale(0.98);
+  padding: 8px 12px;
+  text-align: center;
+  color: var(--accent);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  opacity: 0;
+  transition:
+    opacity 0.22s var(--ease-out),
+    transform 0.28s var(--ease-out),
+    border-color 0.2s;
+}
+
+#interaction.visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+#capture-track {
+  height: 4px;
+  margin-top: 7px;
+  background: rgb(var(--surface-rgb) / 0.12);
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+#capture-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: linear-gradient(90deg, var(--accent), #7ffff0);
+  box-shadow: 0 0 10px var(--accent);
+  will-change: transform;
+}
+
+#damage-vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, transparent 45%, rgb(var(--threat-rgb) / 0.54) 120%);
+  opacity: 0;
+  transition: opacity 0.32s var(--ease-soft);
+}
+
+#damage-vignette.flash {
+  opacity: 1;
+  transition: opacity 0.04s linear;
+}
+
+#damage-direction {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 210px;
+  height: 210px;
+  margin-top: -105px;
+  color: var(--threat);
+  font-size: 2rem;
+  line-height: 1;
+  text-align: center;
+  opacity: 0;
+  filter: drop-shadow(0 0 8px var(--threat));
+  transform-origin: 50% 50%;
+  transition: opacity 0.22s var(--ease-soft);
+}
+
+#damage-direction.visible {
+  opacity: 0.95;
+}
+
+#threat-compass {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.threat-pip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-bottom: 14px solid var(--threat);
+  opacity: 0;
+  filter: drop-shadow(0 0 6px var(--threat));
+  transform-origin: 50% 50%;
+  transition: opacity 0.18s var(--ease-soft);
+}
+
+.threat-pip.visible {
+  opacity: 0.9;
+}
+
+#blackout {
+  position: absolute;
+  inset: 0;
+  background: rgb(var(--ink-rgb) / 0.88);
+  opacity: 0;
+  transition: opacity 0.28s var(--ease-soft);
+}
+
+#blackout.active {
+  opacity: 1;
+}
+
+@keyframes ammoPulse {
+  0%,
+  100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+@media (max-height: 560px), (pointer: coarse) {
+  #weapon-readout {
+    right: max(10px, calc(var(--safe-r) + 8px));
+    bottom: max(8px, calc(var(--safe-b) + 6px));
+    min-width: 118px;
+    padding: 4px 8px;
+  }
+
+  #ammo {
+    font-size: 1.25rem;
+  }
+
+  .pad {
+    right: calc(var(--safe-r) + 10px);
+    bottom: calc(var(--safe-b) + 8px);
+    display: grid;
+    grid-template-columns: repeat(3, 52px);
+    gap: 6px;
+  }
+
+  .btn {
+    width: 52px;
+    height: 52px;
+    font-size: var(--fs-xs);
+    font-weight: 800;
+  }
+
+  .stick {
+    left: calc(var(--safe-l) + 10px);
+    bottom: calc(var(--safe-b) + 12px);
+    width: 112px;
+    height: 112px;
+  }
+}
+
+/* The overlay is inert; only its controls take pointer events back. */
+#ui {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  padding: calc(var(--safe-t) + 10px) calc(var(--safe-r) + 12px)
+    calc(var(--safe-b) + 10px) calc(var(--safe-l) + 12px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ HUD -- */
+
+#hud {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--fs-base);
+}
+
+#objective {
+  margin: 0;
+  padding: 6px 10px;
+  /* Grows into the space it has and wraps rather than colliding with the
+     buttons beside it. min-width:0 is what lets a flex item shrink at all. */
+  flex: 1 1 16rem;
+  min-width: 0;
+  max-width: 60ch;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  line-height: 1.35;
+}
+
+#stats {
+  margin: 0;
+  order: 2;
+  flex: 0 0 auto;
+  display: grid;
+  grid-auto-flow: column;
+  gap: 4px 12px;
+  grid-template-rows: auto auto;
+  padding: 6px 10px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  text-align: center;
+}
+
+#stats dt {
+  color: var(--dim);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#stats dd {
+  margin: 0;
+  font-family: var(--mono);
+  /* Tabular figures so the score stops jittering as it counts. */
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-md);
+}
+
+/* ----------------------------------------------------------------- tabs -- */
+
+#tabs {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+  order: 1; /* between the objective and the stats on a wide screen */
+  pointer-events: auto;
+}
+
+.tab {
+  width: 38px;
+  height: 38px;
+  font-size: var(--fs-md);
+  color: var(--text);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+  transition:
+    border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.18s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.18s;
+}
+
+.tab:hover,
+.tab:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.tab:active {
+  transform: translateY(0) scale(0.96);
+}
+
+.tab.off {
+  color: var(--dim);
+  opacity: 0.55;
+}
+
+/* --------------------------------------------------------------- panels -- */
+
+.panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  pointer-events: auto;
+  background: var(--scrim);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: panelIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.panel[hidden] {
+  display: none;
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.card {
+  width: min(30rem, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  touch-action: pan-y;
+  padding: var(--pad) calc(var(--pad) + 4px);
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  animation: cardIn 0.34s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-size: var(--fs-lg);
+  letter-spacing: -0.01em;
+  color: var(--accent);
+}
+
+.card p {
+  margin: 0 0 10px;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+}
+
+.card .lede {
+  color: var(--player);
+  font-weight: 600;
+}
+
+.card .reason {
+  color: var(--threat);
+}
+
+.card .dim {
+  color: var(--dim);
+  font-size: var(--fs-sm);
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 5px 14px;
+  margin: 0 0 12px;
+  font-size: var(--fs-base);
+}
+
+.controls dt {
+  font-family: var(--mono);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.controls dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.scores {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-base);
+}
+
+.scores li {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--line-faint);
+}
+
+.scores li.me {
+  color: var(--player);
+  font-weight: 700;
+}
+
+.scores .when {
+  color: var(--dim);
+}
+
+.card button {
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 9px 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  transition:
+    border-color 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    background 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.18s,
+    transform 0.16s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.18s;
+}
+
+.card .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ink);
+  font-weight: 700;
+  margin-right: 8px;
+}
+
+.card button:hover,
+.card button:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgb(var(--accent-rgb) / 0.18);
+}
+
+.card button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.card .primary:hover,
+.card .primary:focus-visible {
+  box-shadow: 0 8px 22px rgb(var(--accent-rgb) / 0.35);
+}
+
+/* ------------------------------------------------------- touch controls -- */
+
+#touch {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 46%;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+#touch[hidden] {
+  display: none;
+}
+
+#touch.faded {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stick {
+  position: absolute;
+  left: calc(var(--safe-l) + 22px);
+  bottom: calc(var(--safe-b) + 22px);
+  width: 128px;
+  height: 128px;
+  border-radius: 50%;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  margin: -27px 0 0 -27px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  transition: transform 0.05s linear;
+}
+
+.pad {
+  position: absolute;
+  right: calc(var(--safe-r) + 22px);
+  bottom: calc(var(--safe-b) + 22px);
+  display: flex;
+  gap: 12px;
+  pointer-events: auto;
+}
+
+.btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  font-size: var(--fs-xl);
+  color: var(--ink);
+  background: var(--player-soft);
+  border: 1px solid var(--player);
+  touch-action: none;
+  cursor: pointer;
+}
+
+.btn:active {
+  background: var(--accent);
+}
+
+/* ---------------------------------------------------------------- crash -- */
+
+/* Never a silent blank screen: if the game throws, say so where it can be seen
+   and where a screenshot pass will capture it. */
+#crash {
+  position: absolute;
+  inset: 12px;
+  z-index: 20;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  pointer-events: auto;
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--threat);
+  background: var(--paper);
+  border: 1px solid var(--threat);
+  border-radius: var(--radius);
+}
+
+/* --------------------------------------------------------------- rotate -- */
+
+#rotate {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  text-align: center;
+  gap: 6px;
+  background: var(--ink);
+  pointer-events: auto;
+  z-index: 10;
+}
+
+#rotate[hidden] {
+  display: none;
+}
+
+#rotate p {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+#rotate .dim {
+  color: var(--dim);
+  font-size: var(--fs-base);
+}
+
+/* A phone in landscape has very little vertical room; give the panels and the
+   HUD less padding rather than letting the card scroll for two lines of text. */
+@media (max-height: 460px) {
+  .card {
+    font-size: var(--fs-base);
+    padding: 10px 14px;
+  }
+  .card h2 {
+    margin-bottom: 6px;
+  }
+  .stick {
+    width: 104px;
+    height: 104px;
+  }
+  .btn {
+    width: 60px;
+    height: 60px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001s !important;
+    transition-duration: 0.001s !important;
+  }
+}
+
+/* This override intentionally comes last: the generic spine touch rules above
+   are a one-row arcade pad; Black Relay needs a compact right-thumb FPS cluster. */
+.btn.context-hidden {
+  display: none;
+}
+
+@media (max-height: 560px), (pointer: coarse) {
+  #objective {
+    flex: 1 1 12rem;
+    max-height: 42px;
+    overflow: hidden;
+    padding: 4px 7px;
+    font-size: var(--fs-xs);
+  }
+
+  #stats {
+    gap: 1px 6px;
+    padding: 4px 7px;
+  }
+
+  #tabs {
+    gap: 3px;
+  }
+
+  .tab {
+    width: 34px;
+    height: 34px;
+  }
+
+  #touch {
+    height: 46%;
+  }
+
+  .pad {
+    right: calc(var(--safe-r) + 8px);
+    bottom: calc(var(--safe-b) + 6px);
+    display: grid;
+    grid-template-columns: repeat(3, 48px);
+    gap: 6px;
+    align-items: end;
+    justify-items: center;
+  }
+
+  .btn {
+    width: 48px;
+    height: 48px;
+    padding: 0;
+    font-size: 0.68rem;
+    font-weight: 850;
+    color: var(--surface);
+    background: rgb(var(--player-rgb) / 0.38);
+    border-color: rgb(var(--player-rgb) / 0.65);
+    backdrop-filter: blur(2px);
+  }
+
+  .btn[data-action='fire'] {
+    width: 56px;
+    height: 56px;
+    grid-column: 3;
+    grid-row: 1 / span 2;
+    color: var(--ink);
+    background: rgb(var(--player-rgb) / 0.9);
+    border-width: 2px;
+  }
+
+  .btn[data-action='interact'] {
+    color: var(--ink);
+    background: rgb(var(--accent-rgb) / 0.88);
+    border-color: var(--accent);
+  }
+
+  .btn:active {
+    color: var(--ink);
+    background: var(--accent);
+  }
+
+  #weapon-readout {
+    right: calc(var(--safe-r) + 10px);
+    bottom: calc(var(--safe-b) + 118px);
+    min-width: 132px;
+    padding: 4px 8px;
+  }
+
+  #weapon-name {
+    font-size: 0.62rem;
+  }
+
+  #ammo {
+    font-size: 1.2rem;
+  }
+
+  #vitals {
+    left: calc(var(--safe-l) + 10px);
+    bottom: calc(var(--safe-b) + 118px);
+    width: min(150px, 38vw);
+    padding: 5px 8px;
+  }
+
+  .vital-row {
+    gap: 5px;
+    margin-top: 3px;
+  }
+
+  .vital-track {
+    height: 4px;
+  }
+
+  .vital-value {
+    font-size: 0.65rem;
+  }
+
+  #interaction {
+    bottom: 28%;
+    width: min(300px, 70vw);
+    padding: 6px 10px;
+    font-size: var(--fs-xs);
+  }
+}

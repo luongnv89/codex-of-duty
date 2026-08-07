@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover puts the game under the notch; the CSS then insets
+         the UI with env(safe-area-inset-*) so nothing important hides there. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#0d1117" />
+    <!-- Inline SVG, so even the favicon is generated rather than fetched: a
+         missing /favicon.ico is a 404 in every console the game ever opens in. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230d1117'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%237ad7f0'/%3E%3C/svg%3E"
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Game Forge Game</title>
+  </head>
+  <body>
+    <!-- Phaser mounts its canvas here. Everything else on screen is DOM: text
+         stays crisp at every viewport instead of being scaled by the renderer,
+         and it is selectable, styleable and readable by a screen reader. -->
+    <div id="game" aria-hidden="true"></div>
+
+    <!-- The overlay is inert by default; only the controls inside it opt back
+         into pointer events, so a tap on empty space reaches the game. -->
+    <div id="ui">
+      <!-- Objective, panel buttons and stats share one wrapping row, so a
+           narrow phone stacks them instead of overlapping them. -->
+      <header id="hud">
+        <p id="objective" aria-live="polite">Objective: —</p>
+        <nav id="tabs" aria-label="Game panels"></nav>
+        <dl id="stats" aria-live="polite"></dl>
+      </header>
+
+      <div id="touch" hidden></div>
+
+      <div id="panels"></div>
+
+      <!-- The second line is rewritten from ORIENTATION when the UI mounts. -->
+      <div id="rotate" hidden>
+        <p>Rotate your device</p>
+        <p class="dim"></p>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
